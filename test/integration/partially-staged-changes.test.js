@@ -127,4 +127,37 @@ describe('lint-staged', () => {
       expect(await readFile('test.js')).toEqual(fileFixtures.invalidJS + appended)
     })
   )
+
+  test(
+    'does not point to a removed patch file after reverting conflicting unstaged changes',
+    withGitIntegration(async ({ execGit, expect, gitCommit, readFile, writeFile }) => {
+      await writeFile('.lintstagedrc.json', JSON.stringify(configFixtures.oxfmtWrite))
+
+      // Stage ugly file
+      await writeFile('test.js', fileFixtures.uglyJS)
+      await execGit(['add', '.'])
+
+      // Modify the same lines with unstaged changes, so they conflict with the formatted file
+      await writeFile('test.js', fileFixtures.uglyJSWithChanges)
+
+      let error
+      try {
+        await gitCommit()
+      } catch (err) {
+        error = err.message
+      }
+
+      expect(error).toMatch('Failed to restore unstaged changes!')
+      expect(error).toMatch('Done reverting to original state!')
+
+      // The patch file was removed with the rest of the temporary files after the revert
+      expect(error).not.toMatch('Unstaged changes have been kept back in a patch file:')
+      expect(error).not.toMatch('unstaged.patch')
+
+      // Something was wrong so the repo is returned to original state
+      expect(await execGit(['rev-list', '--count', 'HEAD'])).toEqual('1')
+      expect(await execGit(['show', ':test.js'])).toEqual(fileFixtures.uglyJS.trim())
+      expect(await readFile('test.js')).toEqual(fileFixtures.uglyJSWithChanges)
+    })
+  )
 })
